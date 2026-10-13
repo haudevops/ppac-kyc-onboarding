@@ -81,6 +81,8 @@ Mỗi kịch bản dùng một tài khoản mới; kết quả phụ thuộc h�
 - Mã hóa cấp trường (envelope) cho cột PII, re-encode ảnh phía server và quét mã độc.
 - Nhà cung cấp KYC thật (xác thực giấy tờ, liveness, so khớp khuôn mặt) với webhook thay vì polling.
 - Review theo hàng đợi, PostgreSQL, OpenAPI spec, audit log truy cập tài liệu, job xóa dữ liệu theo retention, deny list access token.
+- Làm sâu hơn phần xác thực: xác minh email và đặt lại mật khẩu, MFA (TOTP / OTP SMS), mở khóa bằng sinh trắc học (Face ID / vân tay) khi mở lại app, gắn thiết bị và danh sách phiên để người dùng thu hồi các thiết bị khác, cùng danh sách chặn access token khi đăng xuất.
+- Làm sâu hơn phần AI nhận diện khuôn mặt: liveness / chống giả mạo ngay trên thiết bị (chớp mắt, quay đầu, chống phát lại), so khớp khuôn mặt giữa selfie và ảnh chân dung trên giấy tờ kèm điểm tin cậy, tự kiểm tra chất lượng ảnh (mờ, lóa, kích thước mặt, nhiều khuôn mặt) và OCR giấy tờ để đối chiếu với thông tin đã nhập; điểm ở ngưỡng biên thì chuyển sang duyệt thủ công.
 - App: certificate pinning, hàng đợi upload offline, integration test trên thiết bị thật, đa ngôn ngữ.
 
 ## Cấu trúc repo
