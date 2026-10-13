@@ -34,7 +34,7 @@ multipart) · `shared_preferences` (encrypted draft) + `flutter_secure_storage` 
 Requirements: Flutter SDK (Dart ≥ 3.13), Android Studio and / or Xcode, and the backend running.
 
 ```bash
-# 1. Backend (see ../kyc_service/README.en.md)
+# 1. Backend (see ../kyc_service/README.md)
 cd ../kyc_service && npm install && npm run setup && npm run dev
 
 # 2. App
