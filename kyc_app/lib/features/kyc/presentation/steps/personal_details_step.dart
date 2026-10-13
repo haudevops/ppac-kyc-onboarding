@@ -37,6 +37,7 @@ class _PersonalDetailsStepState extends State<PersonalDetailsStep> {
   Gender? _gender;
   String? _nationality;
   String? _country;
+  String _phoneCountry = kDefaultPhoneCountry;
   IdType? _idType;
 
   AutovalidateMode _autovalidate = AutovalidateMode.disabled;
@@ -46,7 +47,9 @@ class _PersonalDetailsStepState extends State<PersonalDetailsStep> {
     super.initState();
     final d = context.read<KycBloc>().state.draft.details;
     _fullName = TextEditingController(text: d.fullName);
-    _phone = TextEditingController(text: d.phoneNumber);
+    final phone = splitPhoneNumber(d.phoneNumber, preferred: d.country ?? kDefaultPhoneCountry);
+    _phoneCountry = phone.countryCode;
+    _phone = TextEditingController(text: phone.nationalNumber);
     _idNumber = TextEditingController(text: d.idNumber);
     _address1 = TextEditingController(text: d.addressLine1);
     _address2 = TextEditingController(text: d.addressLine2);
@@ -77,7 +80,7 @@ class _PersonalDetailsStepState extends State<PersonalDetailsStep> {
       dateOfBirth: _dateOfBirth,
       gender: _gender,
       nationality: _nationality,
-      phoneNumber: text(_phone),
+      phoneNumber: composePhoneNumber(_phoneCountry, _phone.text),
       addressLine1: text(_address1),
       addressLine2: text(_address2),
       city: text(_city),
@@ -173,15 +176,34 @@ class _PersonalDetailsStepState extends State<PersonalDetailsStep> {
                 },
               ),
               const _Gap(),
-              TextFormField(
-                controller: _phone,
-                decoration: const InputDecoration(labelText: 'Phone number (optional)', hintText: '+84901234567'),
-                keyboardType: TextInputType.phone,
-                autofillHints: const [AutofillHints.telephoneNumber],
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]'))],
-                onChanged: (_) => _changed(),
-                validator: PersonalDetailsValidator.phone,
-                forceErrorText: errors['phoneNumber'],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 124,
+                    child: _PhoneCountryField(
+                      value: _phoneCountry,
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() => _phoneCountry = v);
+                        _changed();
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _phone,
+                      decoration: const InputDecoration(labelText: 'Phone number (optional)', hintText: '901 234 567'),
+                      keyboardType: TextInputType.phone,
+                      autofillHints: const [AutofillHints.telephoneNumberNational],
+                      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9+ ]'))],
+                      onChanged: (_) => _changed(),
+                      validator: (v) => PersonalDetailsValidator.phone(composePhoneNumber(_phoneCountry, v ?? '')),
+                      forceErrorText: errors['phoneNumber'],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
               const _SectionTitle('Identity document', 'The document you will photograph in the next step.'),
@@ -337,6 +359,33 @@ class _CountryField extends StatelessWidget {
       decoration: InputDecoration(labelText: label),
       items: [for (final e in kCountries.entries) DropdownMenuItem(value: e.key, child: Text(e.value))],
       validator: (v) => PersonalDetailsValidator.country(v, label.toLowerCase()),
+      onChanged: onChanged,
+    );
+  }
+}
+
+/// Country dialling-code picker for the phone field: shows `🇻🇳 +84`; the menu lists `🇻🇳 VN +84`
+/// (short enough for the field's width, and it tells +1 countries apart).
+class _PhoneCountryField extends StatelessWidget {
+  const _PhoneCountryField({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = kCountries.entries.where((e) => kDialCodes.containsKey(e.key)).toList();
+    return DropdownButtonFormField<String>(
+      initialValue: kDialCodes.containsKey(value) ? value : kDefaultPhoneCountry,
+      isExpanded: true,
+      decoration: const InputDecoration(labelText: 'Code'),
+      selectedItemBuilder: (_) => [
+        for (final e in entries) Text('${countryFlag(e.key)} +${kDialCodes[e.key]}', overflow: TextOverflow.ellipsis),
+      ],
+      items: [
+        for (final e in entries)
+          DropdownMenuItem(value: e.key, child: Text('${countryFlag(e.key)} ${e.key} +${kDialCodes[e.key]}')),
+      ],
       onChanged: onChanged,
     );
   }
