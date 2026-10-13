@@ -1,0 +1,6 @@
+# Local values for `npm run cf:dev` (copy to .dev.vars - git-ignored). Overrides "vars" in wrangler.jsonc.
+NODE_ENV=development
+PUBLIC_BASE_URL=http://localhost:8787
+JWT_ACCESS_SECRET=change-me-access-secret-at-least-32-characters-long
+JWT_REFRESH_SECRET=change-me-refresh-secret-at-least-32-characters-long
+LOCAL_STORAGE_SIGNING_SECRET=change-me-local-storage-signing-secret-32-chars

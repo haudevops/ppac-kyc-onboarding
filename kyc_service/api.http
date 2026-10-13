@@ -1,0 +1,109 @@
+### KYC Service - manual requests (VS Code "REST Client" / JetBrains HTTP client)
+@baseUrl = http://localhost:3000/api/v1
+@accessToken = paste-access-token-here
+@refreshToken = paste-refresh-token-here
+
+### Health
+GET http://localhost:3000/health
+
+### Register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{ "email": "alice@example.com", "password": "Sup3rSecret!", "fullName": "Alice Nguyen" }
+
+### Login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "alice@example.com", "password": "Sup3rSecret!" }
+
+### Refresh (rotates the refresh token)
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+### Me
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+### Logout
+POST {{baseUrl}}/auth/logout
+Content-Type: application/json
+
+{ "refreshToken": "{{refreshToken}}" }
+
+### ---------------------------------------------------------------- KYC
+
+### Current application (status + details + documents + history)
+GET {{baseUrl}}/kyc
+Authorization: Bearer {{accessToken}}
+
+### Status only (polling)
+GET {{baseUrl}}/kyc/status
+Authorization: Bearer {{accessToken}}
+
+### Save draft / resume point
+PUT {{baseUrl}}/kyc/draft
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "fullName": "Alice Nguyen",
+  "dateOfBirth": "1990-05-20",
+  "nationality": "VN",
+  "currentStep": "PERSONAL_INFO"
+}
+
+### Upload a document through the API (multipart). type: id-front | id-back | selfie
+POST {{baseUrl}}/kyc/documents/id-front
+Authorization: Bearer {{accessToken}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="id-front.jpg"
+Content-Type: image/jpeg
+
+< ./samples/id-front.jpg
+--boundary--
+
+### Direct upload step 1: get a presigned PUT URL
+POST {{baseUrl}}/kyc/documents/selfie/upload-url
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "contentType": "image/jpeg", "contentLength": 123456 }
+
+### Direct upload step 2: PUT the bytes to data.upload.url with data.upload.headers, then confirm
+POST {{baseUrl}}/kyc/documents/selfie/confirm
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "key": "paste data.upload.key here" }
+
+### Fresh view URL for a document
+GET {{baseUrl}}/kyc/documents/id-front
+Authorization: Bearer {{accessToken}}
+
+### Submit (JSON - images already uploaded)
+POST {{baseUrl}}/kyc/submit
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "addressLine1": "12 Nguyen Hue",
+  "city": "Ho Chi Minh City",
+  "country": "VN",
+  "idType": "NATIONAL_ID",
+  "idNumber": "079090001234",
+  "idIssueDate": "2021-01-15",
+  "idExpiryDate": "2031-01-15"
+}
+
+### DEV ONLY - force a decision immediately
+POST {{baseUrl}}/kyc/dev/review
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{ "decision": "REJECTED", "reason": "Selfie does not match the ID photo" }

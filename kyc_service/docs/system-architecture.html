@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KYC System Architecture</title>
+<style>
+  :root {
+    --bg: #f6f6f3; --surface: #ffffff; --ink: #1b1e23; --muted: #5c6470; --line: #d8dbe0; --chip: #f1f3f5;
+    --app: #2f6fde; --app-bg: #eef4ff;
+    --api: #1d8657; --api-bg: #ebf7f0;
+    --store: #b8730f; --store-bg: #fdf4e6;
+    --db: #7348d0; --db-bg: #f3eefd;
+    --arrow: #3a414e; --danger: #c43d3d; --ok: #1d8657;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131519; --surface: #1b1e24; --ink: #e7e9ed; --muted: #9aa2ad; --line: #2e333b; --chip: #252930;
+      --app: #77a6ff; --app-bg: #17223a; --api: #4fc48c; --api-bg: #14281e;
+      --store: #e5a64e; --store-bg: #2c2315; --db: #ab8cff; --db-bg: #221c35;
+      --arrow: #c2c8d1; --danger: #ff7b7b; --ok: #4fc48c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131519; --surface: #1b1e24; --ink: #e7e9ed; --muted: #9aa2ad; --line: #2e333b; --chip: #252930;
+    --app: #77a6ff; --app-bg: #17223a; --api: #4fc48c; --api-bg: #14281e;
+    --store: #e5a64e; --store-bg: #2c2315; --db: #ab8cff; --db-bg: #221c35;
+    --arrow: #c2c8d1; --danger: #ff7b7b; --ok: #4fc48c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 1240px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 820px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 8px; }
+  nav a { color: var(--ink); text-decoration: none; font-size: 13px; padding: 5px 11px; border: 1px solid var(--line);
+          border-radius: 999px; background: var(--surface); }
+  nav a:hover { border-color: var(--muted); }
+  section { margin-top: 36px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 14px; font-size: 14px; max-width: 900px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroll svg { display: block; width: 100%; min-width: 980px; height: auto; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid; display: inline-block; }
+  .ln { width: 26px; height: 0; border-top: 2px solid var(--arrow); display: inline-block; }
+  .ln.dash { border-top-style: dashed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  code { font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--chip);
+         padding: 1px 5px; border-radius: 5px; }
+  .tablewrap { overflow-x: auto; }
+  .tablewrap table { min-width: 760px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 12.5px; }
+
+  /* SVG */
+  svg text { fill: var(--ink); font-family: inherit; }
+  .t-title { font-size: 15px; font-weight: 700; }
+  .t-sub { font-size: 11.5px; fill: var(--muted); }
+  .t-layer { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; fill: var(--muted); }
+  .t-chip { font-size: 12px; }
+  .t-msg { font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+  .t-edge { font-size: 11.5px; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 5px; }
+  .t-num { font-size: 10px; font-weight: 700; fill: var(--surface); stroke: none; }
+  .sys { stroke-width: 1.6; }
+  .sys-app { fill: var(--app-bg); stroke: var(--app); }
+  .sys-api { fill: var(--api-bg); stroke: var(--api); }
+  .sys-store { fill: var(--store-bg); stroke: var(--store); }
+  .sys-db { fill: var(--db-bg); stroke: var(--db); }
+  .layer { fill: var(--surface); stroke: var(--line); }
+  .chip { fill: var(--chip); stroke: var(--line); stroke-width: .8; }
+  .chip-app { stroke: var(--app); } .chip-api { stroke: var(--api); }
+  .chip-store { stroke: var(--store); } .chip-db { stroke: var(--db); }
+  .edge { fill: none; stroke: var(--arrow); stroke-width: 1.7; }
+  .edge.dash { stroke-dasharray: 6 5; }
+  .edge.thin { stroke-width: 1.2; }
+  .life { stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 4 5; }
+  .note { fill: var(--chip); stroke: var(--line); }
+  .num { fill: var(--arrow); }
+  .st { fill: var(--surface); stroke: var(--arrow); stroke-width: 1.5; }
+  .st-ok { stroke: var(--ok); } .st-bad { stroke: var(--danger); } .st-warn { stroke: var(--store); }
+  .head-app { fill: var(--app-bg); stroke: var(--app); } .head-api { fill: var(--api-bg); stroke: var(--api); }
+  .head-store { fill: var(--store-bg); stroke: var(--store); } .head-db { fill: var(--db-bg); stroke: var(--db); }
+  .arrowhead { fill: var(--arrow); }
+  .region { fill: none; stroke: var(--store); stroke-width: 1.4; stroke-dasharray: 8 6; }
+  .t-region { font-size: 12px; font-weight: 700; fill: var(--store); letter-spacing: .03em; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Sơ đồ kỹ thuật hệ thống KYC Onboarding</h1>
+    <p>Hai source: <code>kyc_app</code> (Flutter, Android / iOS) và <code>kyc_service</code> (TypeScript, Express 5, Prisma) chạy trên
+       <strong>Cloudflare</strong>: Workers cho API, <strong>D1</strong> cho database, <strong>R2</strong> cho ảnh và <strong>Durable Object</strong> cho job xét duyệt.
+       Khi dev ở máy local (<code>npm run dev</code>) cùng source đó chạy như server Node với SQLite và ổ đĩa.</p>
+    <nav>
+      <a href="#overview">Kiến trúc tổng quan</a>
+      <a href="#states">State machine</a>
+      <a href="#auth">Luồng đăng nhập</a>
+      <a href="#kyc">Luồng nộp hồ sơ</a>
+      <a href="#upload">Upload trực tiếp</a>
+      <a href="#contracts">Bảng giao tiếp</a>
+    </nav>
+  </header>
+
+  <section id="overview">
+    <h2>1. Kiến trúc tổng quan</h2>
+    <p class="lead">App chỉ nói chuyện với một điểm duy nhất là Worker qua HTTPS <code>/api/v1</code>, kể cả khi tải ảnh (URL <code>/api/v1/files/:token</code> ký HMAC, hết hạn sau 5 phút).
+      Worker truy cập D1, R2 và Durable Object qua <em>binding</em>, không cần API key. Trong mỗi hệ thống, phụ thuộc chỉ hướng vào trong
+      (app: presentation → domain ← data; backend: controller → service → repository); chỉ thư mục <code>worker/</code> biết mình đang chạy trên Cloudflare.</p>
+    <div class="card scroll"><svg id="arch" viewBox="0 0 1200 800" role="img" aria-label="Sơ đồ kiến trúc tổng quan"></svg></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--app-bg);border-color:var(--app)"></i>Mobile app</span>
+      <span><i class="sw" style="background:var(--api-bg);border-color:var(--api)"></i>Backend API</span>
+      <span><i class="sw" style="background:var(--store-bg);border-color:var(--store)"></i>Object storage</span>
+      <span><i class="sw" style="background:var(--db-bg);border-color:var(--db)"></i>Database</span>
+      <span><i class="sw" style="border-style:dashed;border-color:var(--store)"></i>Tài khoản Cloudflare</span>
+      <span><i class="ln"></i>Gọi trực tiếp / binding</span>
+      <span><i class="ln dash"></i>Kích hoạt bất đồng bộ</span>
+    </div>
+  </section>
+
+  <section id="states">
+    <h2>2. State machine của hồ sơ KYC</h2>
+    <p class="lead">Khai báo một lần trong <code>src/models/kyc.model.ts</code>. Mỗi chuyển trạng thái là một
+      <code>UPDATE … WHERE id = ? AND status = ?</code> có điều kiện, kèm một dòng <code>KycStatusHistory</code>, nên không bao giờ bị áp dụng hai lần
+      (D1 không có interactive transaction nên hai câu lệnh chạy lần lượt; an toàn khi chạy đồng thời vẫn giữ nguyên).</p>
+    <div class="card scroll"><svg id="states-svg" viewBox="0 0 1000 270" role="img" aria-label="State machine KYC"></svg></div>
+  </section>
+
+  <section id="auth">
+    <h2>3. Luồng đăng nhập, refresh token và đăng xuất</h2>
+    <p class="lead">Access token 15 phút; refresh token được xoay vòng mỗi lần dùng, chỉ lưu hash. AuthInterceptor gom các lỗi 401 đồng thời vào một lần refresh duy nhất.</p>
+    <div class="card scroll"><svg id="seq-auth" role="img" aria-label="Sequence diagram đăng nhập"></svg></div>
+  </section>
+
+  <section id="kyc">
+    <h2>4. Luồng lưu nháp, upload ảnh, nộp hồ sơ và xét duyệt</h2>
+    <p class="lead">Khi nộp hồ sơ, Worker đánh thức Durable Object <code>KycReviewScheduler</code>; alarm của nó chạy <code>KycReviewWorker.tick()</code> mỗi giây
+      đến khi không còn hồ sơ chờ (thêm Cron mỗi phút để dự phòng). Trạng thái nằm trong D1 nên deploy lại hay restart cũng không mất hồ sơ đang chờ.
+      App polling trạng thái bằng rxdart (<code>startWith</code> + <code>exhaustMap</code> + <code>takeWhileInclusive</code>).</p>
+    <div class="card scroll"><svg id="seq-kyc" role="img" aria-label="Sequence diagram nộp hồ sơ KYC"></svg></div>
+  </section>
+
+  <section id="upload">
+    <h2>5. Upload bằng URL đã ký (tuỳ chọn, ngoài cách multipart)</h2>
+    <p class="lead">Trên Cloudflare, URL ký là của chính Worker (<code>/api/v1/files/:token</code>, HMAC, 10 phút): Worker kiểm tra chữ ký và Content-Type rồi ghi vào R2,
+      nên không cần cấp API key R2. Kích thước và loại file thật được kiểm tra lại ở bước confirm.
+      (Khi chạy server Node với <code>STORAGE_DRIVER=s3</code>, URL trỏ thẳng tới presigned URL của R2 / S3.)</p>
+    <div class="card scroll"><svg id="seq-upload" role="img" aria-label="Sequence diagram upload trực tiếp"></svg></div>
+  </section>
+
+  <section id="contracts">
+    <h2>6. Bảng giao tiếp giữa các hệ thống</h2>
+    <div class="card tablewrap">
+      <table>
+        <thead><tr><th>Từ → Đến</th><th>Giao thức</th><th>Nội dung chính</th><th>Bảo mật / độ tin cậy</th></tr></thead>
+        <tbody>
+          <tr><td>App → Worker</td><td>HTTPS REST, JSON</td>
+              <td><code>/auth/register|login|refresh|logout|me</code>, <code>GET /kyc</code>, <code>GET /kyc/status</code>, <code>PUT /kyc/draft</code></td>
+              <td>Bearer JWT (HS256), rate limit theo IP (<code>CF-Connecting-IP</code>), Zod validate, envelope lỗi thống nhất + <code>X-Request-Id</code>; app retry có backoff</td></tr>
+          <tr><td>App → Worker</td><td>HTTPS multipart</td>
+              <td><code>POST /kyc/documents/:type</code>, <code>POST /kyc/submit</code> (chỉ gửi ảnh server chưa có)</td>
+              <td>Tối đa 5 MB, kiểm tra magic bytes (JPEG / PNG / WEBP), multipart được dựng lại trước mỗi lần retry</td></tr>
+          <tr><td>App → Worker</td><td>HTTPS GET / PUT <code>/api/v1/files/:token</code></td>
+              <td>Hiển thị ảnh; upload bằng URL đã ký (tuỳ chọn)</td>
+              <td>Token HMAC có hạn: xem 5 phút, upload 10 phút; Content-Type nằm trong chữ ký; <code>Cache-Control: no-store</code></td></tr>
+          <tr><td>Worker → R2</td><td>R2 binding <code>FILES</code></td>
+              <td><code>put</code>, <code>head</code>, <code>get</code> (có range), <code>delete</code></td>
+              <td>Bucket private, không public / r2.dev, key không đoán được, R2 mã hoá AES-256 at rest</td></tr>
+          <tr><td>Worker → D1</td><td>Prisma + <code>@prisma/adapter-d1</code> (binding <code>DB</code>)</td>
+              <td>User, RefreshToken, KycApplication, KycDocument, KycStatusHistory</td>
+              <td>Mật khẩu bcrypt, refresh token lưu hash SHA-256, <code>UPDATE</code> có điều kiện chống race</td></tr>
+          <tr><td>Worker → Durable Object</td><td>RPC qua binding <code>REVIEW_SCHEDULER</code></td>
+              <td><code>ensureScheduled()</code> sau khi nộp hồ sơ (202), và từ Cron mỗi phút</td>
+              <td>Một instance duy nhất (<code>idFromName</code>) nên các lượt xét duyệt không chồng nhau</td></tr>
+          <tr><td>Durable Object → D1</td><td>Alarm mỗi 1 s → Prisma</td>
+              <td>SUBMITTED → PROCESSING → APPROVED / REJECTED / RESUBMISSION_REQUESTED sau 10 giây</td>
+              <td>Trạng thái nằm trong D1 nên không mất khi deploy lại; tự dừng alarm khi không còn hồ sơ chờ</td></tr>
+          <tr><td>App ↔ Thiết bị</td><td>Keychain / Keystore, SharedPreferences, file</td>
+              <td>Token, khoá mã hoá, bản nháp, ảnh đã nén</td>
+              <td>Bản nháp AES-256-GCM, ảnh bỏ EXIF, FLAG_SECURE + privacy overlay, <code>allowBackup=false</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>Sinh ra từ source <code>kyc_service</code> (kể cả <code>worker/</code>, <code>wrangler.jsonc</code>) và <code>kyc_app</code>. Mở trực tiếp bằng trình duyệt, không cần internet.</footer>
+</main>
+
+<script>
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(parent, x, y, s, cls, anchor, extra) {
+    const t = el('text', Object.assign({ x, y, class: cls || '', 'text-anchor': anchor || 'start' }, extra || {}), parent);
+    t.textContent = s;
+    return t;
+  }
+  function defs(svg) {
+    const d = el('defs', {}, svg);
+    const m = el('marker', { id: svg.id + '-ah', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' }, d);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', class: 'arrowhead' }, m);
+    return 'url(#' + svg.id + '-ah)';
+  }
+  // Lays chips out left to right, wrapping inside width w. Returns the bottom y.
+  function chips(g, x, y, w, items, tone) {
+    let cx = x, cy = y;
+    for (const item of items) {
+      const t = txt(g, 0, 0, item, 't-chip');
+      const cw = Math.ceil(t.getComputedTextLength()) + 18;
+      if (cx + cw > x + w && cx > x) { cx = x; cy += 30; }
+      const r = el('rect', { x: cx, y: cy, width: cw, height: 24, rx: 6, class: 'chip chip-' + tone });
+      g.insertBefore(r, t);
+      t.setAttribute('x', cx + 9); t.setAttribute('y', cy + 16);
+      cx += cw + 6;
+    }
+    return cy + 24;
+  }
+  // Draws a layer whose height fits its chips. Returns { top, bottom, mid }.
+  function layer(g, x, y, w, label, items, tone) {
+    const rect = el('rect', { x, y, width: w, height: 10, rx: 9, class: 'layer' }, g);
+    txt(g, x + 12, y + 18, label, 't-layer');
+    const bottom = chips(g, x + 12, y + 28, w - 24, items, tone) + 12;
+    rect.setAttribute('height', bottom - y);
+    return { top: y, bottom, mid: (y + bottom) / 2 };
+  }
+  // Stacks layers vertically with arrows between them.
+  function stack(g, x, y, w, layers, tone, ah) {
+    const out = [];
+    for (const [label, items] of layers) {
+      if (out.length) el('path', { d: `M${x + w / 2},${y - 16} V${y}`, class: 'edge thin', 'marker-end': ah }, g);
+      const l = layer(g, x, y, w, label, items, tone);
+      out.push(l); y = l.bottom + 16;
+    }
+    return out;
+  }
+  function sysbox(g, x, y, w, h, tone, title, sub) {
+    const r = el('rect', { x, y, width: w, height: h, rx: 14, class: 'sys sys-' + tone }, g);
+    txt(g, x + 16, y + 26, title, 't-title');
+    if (sub) txt(g, x + 16, y + 43, sub, 't-sub');
+    return r;
+  }
+
+  /* ---------- 1. Architecture ---------- */
+  (function arch() {
+    const svg = document.getElementById('arch');
+    const ah = defs(svg);
+    const g = el('g', {}, svg);
+
+    // Mobile
+    const appBox = sysbox(g, 20, 50, 380, 730, 'app', 'kyc_app', 'Flutter · flutter_bloc + rxdart · Dio');
+    const appLayers = stack(g, 36, 104, 348, [
+      ['Presentation', ['Login / Register', 'KYC wizard 5 bước', 'Camera overlay', 'My profile', 'PrivacyOverlay']],
+      ['State', ['AuthBloc', 'KycBloc', 'ProfileCubit', 'SessionEvents']],
+      ['Domain', ['AuthRepository', 'KycRepository', 'PersonalDetailsValidator', 'KycResumeResolver']],
+      ['Data · Remote', ['ApiClient (Dio)', 'AuthInterceptor: JWT, refresh single-flight', 'RetryInterceptor: backoff + jitter', 'SafeLogInterceptor', 'AppException', 'Mappers JSON ⇄ entity']],
+      ['Data · Local (trên máy)', ['SharedPreferences: draft AES-256-GCM', 'Secure storage: tokens + khoá draft', 'File: ảnh nén, bỏ EXIF', 'ImageProcessor ≤1600 px']],
+    ], 'app', ah);
+    const remote = appLayers[3];
+
+    // Cloudflare account region (drawn first, behind everything)
+    const region = el('rect', { x: 452, y: 8, width: 744, height: 100, rx: 18, class: 'region' }, g);
+    txt(g, 470, 30, 'CLOUDFLARE · Workers · D1 · R2 · Durable Objects', 't-region');
+
+    // Backend (Worker)
+    const apiBox = sysbox(g, 470, 50, 430, 730, 'api', 'kyc_service · Worker', 'Express 5 trên Workers (nodejs_compat) · TypeScript · Prisma');
+    const [entry, mw, , , , infra] = stack(g, 486, 104, 398, [
+      ['Worker entry · worker/index.ts', ['httpServerHandler → Express', 'XFF ← CF-Connecting-IP', 'fetch · scheduled (cron)']],
+      ['Middleware', ['helmet', 'CORS', 'requestId + log', 'rateLimit', 'authenticate (JWT)', 'validate (Zod)', 'upload (multer + magic bytes)', 'errorHandler']],
+      ['Routes → Controllers', ['/auth/*', '/kyc/*', '/files/:token', '/health']],
+      ['Services', ['AuthService', 'KycService (state machine)', 'KycReviewer (rules)', 'KycReviewWorker.tick()']],
+      ['Repositories', ['UserRepo', 'RefreshTokenRepo', 'KycRepo: UPDATE … WHERE status']],
+      ['Infrastructure', ['Prisma + adapter-d1', 'R2StorageProvider', 'URL ký HMAC', 'container.ts (DI)', 'env.ts (Zod)']],
+    ], 'api', ah);
+    const bottom = Math.max(appLayers[appLayers.length - 1].bottom, infra.bottom) + 16;
+    appBox.setAttribute('height', bottom - 50);
+    apiBox.setAttribute('height', bottom - 50);
+    region.setAttribute('height', bottom + 4 - 8);
+    svg.setAttribute('viewBox', `0 0 1200 ${bottom + 16}`);
+
+    // Cloudflare services (right column)
+    sysbox(g, 960, 50, 220, 200, 'api', 'Durable Object', 'KycReviewScheduler');
+    chips(g, 976, 50 + 58, 188, ['alarm mỗi 1 s khi còn hồ sơ chờ', 'chạy KycReviewWorker.tick()', 'Cron * * * * * dự phòng'], 'api');
+    sysbox(g, 960, 280, 220, 190, 'store', 'R2 · kyc-documents', 'binding FILES');
+    chips(g, 976, 280 + 58, 188, ['Bucket private', 'put / head / get / delete', 'AES-256 at rest', 'kyc/<user>/<app>/…'], 'store');
+    const dbTop = 500, dbH = bottom - 16 - dbTop;
+    sysbox(g, 960, dbTop, 220, dbH, 'db', 'D1 · kyc-db', 'binding DB · SQLite');
+    chips(g, 976, dbTop + 58, 188, ['User', 'RefreshToken', 'KycApplication', 'KycDocument', 'KycStatusHistory', 'migrations/0001_init.sql'], 'db');
+
+    // App <-> Worker (everything, including photos)
+    el('path', { d: `M384,${remote.mid} H435 V${mw.mid} H486`, class: 'edge', 'marker-start': ah, 'marker-end': ah }, g);
+    const lblY = (remote.mid + mw.mid) / 2;
+    txt(g, 451, lblY, 'HTTPS /api/v1 · JSON + multipart · Bearer JWT · ảnh qua /files/:token', 't-edge', 'middle', { transform: `rotate(-90 451 ${lblY})` });
+    // Worker entry -> Durable Object (after a 202 submit)
+    el('path', { d: `M884,${entry.mid} H960`, class: 'edge dash', 'marker-end': ah }, g);
+    txt(g, 922, entry.mid - 8, 'submit 202', 't-edge', 'middle');
+    // Infrastructure -> R2 and D1
+    const i1 = infra.top + 30, i2 = infra.bottom - 22;
+    el('path', { d: `M884,${i1} H930 V375 H960`, class: 'edge', 'marker-end': ah }, g);
+    const sY = (i1 + 375) / 2;
+    txt(g, 924, sY, 'R2 binding', 't-edge', 'middle', { transform: `rotate(-90 924 ${sY})` });
+    el('path', { d: `M884,${i2} H960`, class: 'edge', 'marker-end': ah }, g);
+    txt(g, 922, i2 - 6, 'Prisma · D1', 't-edge', 'middle');
+    // Durable Object alarm -> D1
+    el('path', { d: `M1180,150 H1190 V${dbTop + 40} H1180`, class: 'edge', 'marker-end': ah }, g);
+    txt(g, 1172, dbTop - 12, 'alarm → D1: UPDATE có điều kiện', 't-edge', 'end');
+  })();
+
+  /* ---------- 2. State machine ---------- */
+  (function states() {
+    const svg = document.getElementById('states-svg');
+    const ah = defs(svg);
+    const g = el('g', {}, svg);
+    function node(x, y, w, label, cls, final) {
+      el('rect', { x, y, width: w, height: 44, rx: 22, class: 'st ' + (cls || '') }, g);
+      if (final) el('rect', { x: x + 4, y: y + 4, width: w - 8, height: 36, rx: 18, class: 'st ' + cls, fill: 'none' }, g);
+      txt(g, x + w / 2, y + 27, label, 't-chip', 'middle', { 'font-weight': 700 });
+    }
+    el('circle', { cx: 22, cy: 122, r: 7, fill: 'var(--arrow)' }, g);
+    el('path', { d: 'M29,122 H76', class: 'edge', 'marker-end': ah }, g);
+    node(78, 100, 120, 'DRAFT');
+    node(320, 100, 140, 'SUBMITTED');
+    node(540, 100, 140, 'PROCESSING');
+    node(770, 22, 200, 'APPROVED', 'st-ok', true);
+    node(770, 100, 200, 'REJECTED', 'st-bad', true);
+    node(770, 178, 220, 'RESUBMISSION_REQUESTED', 'st-warn');
+    el('path', { d: 'M198,122 H318', class: 'edge', 'marker-end': ah }, g);
+    txt(g, 258, 112, 'POST /kyc/submit', 't-msg', 'middle');
+    el('path', { d: 'M460,122 H538', class: 'edge', 'marker-end': ah }, g);
+    txt(g, 499, 112, 'worker nhận', 't-msg', 'middle');
+    el('path', { d: 'M680,112 C725,112 725,44 768,44', class: 'edge', 'marker-end': ah }, g);
+    el('path', { d: 'M680,122 H768', class: 'edge', 'marker-end': ah }, g);
+    el('path', { d: 'M680,132 C725,132 725,200 768,200', class: 'edge', 'marker-end': ah }, g);
+    txt(g, 610, 166, 'quyết định sau 10 s', 't-sub', 'middle');
+    el('path', { d: 'M880,222 V252 H138 V146', class: 'edge dash', 'marker-end': ah }, g);
+    txt(g, 510, 246, 'lần sửa đầu tiên mở lại hồ sơ (ảnh bị yêu cầu chụp lại bị xoá)', 't-msg', 'middle');
+    txt(g, 138, 88, 'lưu nháp / upload đầu tiên', 't-sub', 'middle');
+    txt(g, 870, 14, 'trạng thái cuối → My profile', 't-sub', 'middle');
+    txt(g, 870, 163, 'trạng thái cuối · liên hệ hỗ trợ', 't-sub', 'middle');
+  })();
+
+  /* ---------- Sequence renderer ---------- */
+  function sequence(id, parts, steps) {
+    const svg = document.getElementById(id);
+    const W = 1200, M = 100, ah = defs(svg);
+    const lifeG = el('g', {}, svg), g = el('g', {}, svg);
+    const xs = {};
+    parts.forEach((p, i) => { xs[p.id] = M + i * (W - 2 * M) / (parts.length - 1); });
+    parts.forEach(p => {
+      const x = xs[p.id];
+      el('rect', { x: x - 84, y: 10, width: 168, height: 48, rx: 10, class: 'sys head-' + p.tone }, g);
+      txt(g, x, 31, p.label, 't-chip', 'middle', { 'font-weight': 700 });
+      txt(g, x, 48, p.sub, 't-sub', 'middle');
+    });
+    let y = 92, n = 0;
+    function badge(x, yy) {
+      n++;
+      el('circle', { cx: x, cy: yy, r: 9, class: 'num' }, g);
+      txt(g, x, yy + 3.5, String(n), 't-num', 'middle');
+    }
+    for (const s of steps) {
+      if (s.note) {
+        const a = xs[s.over[0]], b = xs[s.over[s.over.length - 1]];
+        const x1 = Math.min(a, b) - 80, x2 = Math.max(a, b) + 80;
+        el('rect', { x: x1, y: y - 16, width: x2 - x1, height: 30, rx: 7, class: 'note' }, g);
+        txt(g, (x1 + x2) / 2, y + 4, s.note, 't-chip', 'middle');
+        y += 44; continue;
+      }
+      const x1 = xs[s.f], x2 = xs[s.t];
+      if (s.f === s.t) {
+        // Loop to the right, or to the left for the last lifeline so the label stays inside the canvas.
+        const left = x1 > W - 260;
+        const dir = left ? -1 : 1;
+        el('path', { d: `M${x1},${y - 6} h${42 * dir} v20 h${-40 * dir}`, class: 'edge' + (s.dash ? ' dash' : ''), 'marker-end': ah }, g);
+        badge(x1 + 42 * dir, y - 6);
+        txt(g, x1 + 58 * dir, y + 8, s.l, 't-msg', left ? 'end' : 'start');
+        y += 46; continue;
+      }
+      el('path', { d: `M${x1},${y} H${x2 + (x2 > x1 ? -2 : 2)}`, class: 'edge' + (s.dash ? ' dash' : ''), 'marker-end': ah }, g);
+      const t = txt(g, (x1 + x2) / 2, y - 8, s.l, 't-msg', 'middle');
+      if (t.getComputedTextLength() > Math.abs(x2 - x1) - 40) {
+        // Too long to centre between the lifelines: start it just after the left end instead.
+        t.setAttribute('text-anchor', 'start');
+        t.setAttribute('x', Math.min(x1, x2) + 26);
+      }
+      badge(x1 + (x2 > x1 ? 14 : -14), y);
+      y += 40;
+    }
+    parts.forEach(p => el('line', { x1: xs[p.id], y1: 58, x2: xs[p.id], y2: y, class: 'life' }, lifeG));
+    svg.setAttribute('viewBox', `0 0 ${W} ${y + 6}`);
+  }
+
+  sequence('seq-auth', [
+    { id: 'ui', label: 'App · AuthBloc', sub: 'kyc_app', tone: 'app' },
+    { id: 'dio', label: 'Dio interceptors', sub: 'Auth · Retry · SafeLog', tone: 'app' },
+    { id: 'api', label: 'Worker (API)', sub: 'Express · AuthService', tone: 'api' },
+    { id: 'db', label: 'D1', sub: 'User · RefreshToken', tone: 'db' },
+  ], [
+    { f: 'ui', t: 'dio', l: 'login(email, password)' },
+    { f: 'dio', t: 'api', l: 'POST /auth/login' },
+    { f: 'api', t: 'db', l: 'tìm user + bcrypt.compare (hash giả nếu email không tồn tại)' },
+    { f: 'api', t: 'db', l: 'lưu SHA-256 của refresh token (family mới)' },
+    { f: 'api', t: 'dio', l: '200 { user, accessToken 15 phút, refreshToken }', dash: true },
+    { f: 'ui', t: 'ui', l: 'lưu token vào Keychain / Keystore → vào luồng KYC' },
+    { note: 'Một lúc sau, access token hết hạn', over: ['ui', 'db'] },
+    { f: 'dio', t: 'api', l: 'GET /kyc (Bearer access token)' },
+    { f: 'api', t: 'dio', l: '401 TOKEN_EXPIRED', dash: true },
+    { f: 'dio', t: 'api', l: 'POST /auth/refresh (một lần cho mọi 401 đồng thời)' },
+    { f: 'api', t: 'db', l: 'thu hồi token cũ, tạo token mới cùng family (rotation)' },
+    { f: 'api', t: 'dio', l: '200 tokens mới', dash: true },
+    { f: 'dio', t: 'api', l: 'gửi lại GET /kyc → 200' },
+    { note: 'Refresh token cũ bị dùng lại → 401 REFRESH_TOKEN_REUSED, thu hồi cả family; app xoá token và về màn hình đăng nhập (giữ bản nháp)', over: ['ui', 'db'] },
+    { f: 'ui', t: 'api', l: 'POST /auth/logout { refreshToken } → 204, thu hồi family; app xoá token + bản nháp' },
+  ]);
+
+  sequence('seq-kyc', [
+    { id: 'app', label: 'App · KycBloc', sub: 'kyc_app', tone: 'app' },
+    { id: 'api', label: 'Worker (API)', sub: 'Express · KycService', tone: 'api' },
+    { id: 'st', label: 'R2', sub: 'kyc-documents', tone: 'store' },
+    { id: 'db', label: 'D1', sub: 'kyc-db', tone: 'db' },
+    { id: 'wk', label: 'Durable Object', sub: 'KycReviewScheduler', tone: 'api' },
+  ], [
+    { f: 'app', t: 'app', l: 'mỗi thay đổi: lưu draft local (AES-256-GCM)' },
+    { f: 'app', t: 'api', l: 'PUT /kyc/draft (debounce)' },
+    { f: 'api', t: 'db', l: 'tạo / cập nhật DRAFT + currentStep' },
+    { f: 'app', t: 'app', l: 'chụp ảnh trong khung → nén, bỏ EXIF' },
+    { f: 'app', t: 'api', l: 'POST /kyc/documents/id-front (multipart, chạy ngầm)' },
+    { f: 'api', t: 'st', l: 'R2.put (sau khi kiểm tra magic bytes)' },
+    { f: 'api', t: 'db', l: 'lưu KycDocument, xoá object cũ nếu thay ảnh' },
+    { f: 'app', t: 'api', l: 'POST /kyc/submit (multipart, chỉ ảnh server còn thiếu)' },
+    { f: 'api', t: 'db', l: 'UPDATE status = SUBMITTED WHERE status = DRAFT' },
+    { f: 'api', t: 'app', l: '202 SUBMITTED (hoặc 422 KYC_INCOMPLETE, dữ liệu vẫn được lưu)', dash: true },
+    { f: 'api', t: 'wk', l: 'ensureScheduled() → đặt alarm (ctx.waitUntil)', dash: true },
+    { f: 'wk', t: 'db', l: 'alarm → tick(): SUBMITTED → PROCESSING' },
+    { f: 'app', t: 'api', l: 'GET /kyc/status mỗi 2 s' },
+    { f: 'api', t: 'app', l: 'PROCESSING', dash: true },
+    { f: 'wk', t: 'db', l: 'alarm mỗi 1 s; sau 10 s: quyết định + KycStatusHistory' },
+    { f: 'wk', t: 'wk', l: 'không còn hồ sơ chờ → không đặt alarm nữa' },
+    { f: 'app', t: 'api', l: 'GET /kyc/status' },
+    { f: 'api', t: 'app', l: 'APPROVED / REJECTED / RESUBMISSION_REQUESTED (+ items) → dừng polling', dash: true },
+    { note: 'APPROVED → My profile · REJECTED → kết thúc · RESUBMISSION_REQUESTED → sửa các mục được yêu cầu rồi nộp lại', over: ['app', 'wk'] },
+    { f: 'app', t: 'api', l: 'GET /kyc (màn hình My profile)' },
+    { f: 'api', t: 'app', l: 'dữ liệu đã xác minh + URL /api/v1/files/:token (ký HMAC, 5 phút)', dash: true },
+    { f: 'app', t: 'api', l: 'GET /api/v1/files/:token' },
+    { f: 'api', t: 'st', l: 'kiểm tra chữ ký → R2.get → stream ảnh về app' },
+  ]);
+
+  sequence('seq-upload', [
+    { id: 'app', label: 'App', sub: 'kyc_app', tone: 'app' },
+    { id: 'api', label: 'Worker (API)', sub: 'KycService · FilesController', tone: 'api' },
+    { id: 'st', label: 'R2', sub: 'bucket private', tone: 'store' },
+  ], [
+    { f: 'app', t: 'api', l: 'POST /kyc/documents/selfie/upload-url { contentType }' },
+    { f: 'api', t: 'app', l: '{ url: /api/v1/files/:token, headers, key } · TTL 10 phút', dash: true },
+    { f: 'app', t: 'api', l: 'PUT /api/v1/files/:token + Content-Type (nằm trong chữ ký) + bytes' },
+    { f: 'api', t: 'st', l: 'kiểm tra token + Content-Type → R2.put' },
+    { f: 'api', t: 'app', l: '200', dash: true },
+    { f: 'app', t: 'api', l: 'POST /kyc/documents/selfie/confirm { key }' },
+    { f: 'api', t: 'st', l: 'R2.head + get(range): chủ sở hữu, kích thước, loại file thật' },
+    { f: 'api', t: 'app', l: '200 gắn vào hồ sơ (object không hợp lệ bị xoá)', dash: true },
+  ]);
+})();
+</script>
+</body>
+</html>

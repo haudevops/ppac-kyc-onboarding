@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+
+# Local SQLite database
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-wal
+prisma/*.db-shm
+
+# Local object storage (contains PII images - never commit)
+storage/
+
+.DS_Store
+*.log
+
+# Cloudflare Workers
+.wrangler/
+.dev.vars
+worker-configuration.d.ts

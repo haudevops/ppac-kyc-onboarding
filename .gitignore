@@ -1,0 +1,8 @@
+# OS / tooling noise
+.DS_Store
+*.log
+
+# Local exports from AI tools - not part of the project
+**/Claude outputs/
+
+# Each project has its own .gitignore (node_modules, build, .env, local databases, PII images...)

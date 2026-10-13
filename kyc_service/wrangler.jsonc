@@ -1,0 +1,67 @@
+// Cloudflare Workers deployment of kyc_service (see README "Deploying to Cloudflare").
+// Secrets (JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, LOCAL_STORAGE_SIGNING_SECRET) are set with
+// `npx wrangler secret put <NAME>` - never put them in this file. Local dev reads them from .dev.vars.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "kyc-service",
+	"main": "worker/index.ts",
+	"compatibility_date": "2025-09-15",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"vars": {
+		"NODE_ENV": "production",
+		// Replace with your Worker URL after the first deploy (it is printed by `wrangler deploy`).
+		"PUBLIC_BASE_URL": "https://kyc-service.tranduchau10d4.workers.dev",
+		"TRUST_PROXY": "true",
+		// Not used by D1, but required by the shared config schema.
+		"DATABASE_URL": "file:d1",
+		// Photos: R2 binding below + HMAC-signed /api/v1/files/:token URLs (same flow as the local driver).
+		"STORAGE_DRIVER": "local",
+		// bcrypt is CPU-heavy on Workers; 10 rounds is still the OWASP minimum for bcrypt.
+		"BCRYPT_SALT_ROUNDS": "10",
+		"KYC_AUTO_REVIEW_DELAY_MS": "10000",
+		"KYC_REVIEW_POLL_INTERVAL_MS": "1000",
+		"KYC_AUTO_REVIEW_MODE": "rule"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "kyc-db",
+			// Replace with the id printed by `npx wrangler d1 create kyc-db`.
+			"database_id": "294e5db1-7ded-4e31-9ccd-affbb1d5a585",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "FILES",
+			"bucket_name": "kyc-documents"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "REVIEW_SCHEDULER",
+				"class_name": "KycReviewScheduler"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"KycReviewScheduler"
+			]
+		}
+	],
+	// Safety net for the review scheduler (see worker/index.ts).
+	"triggers": {
+		"crons": [
+			"* * * * *"
+		]
+	},
+	"observability": {
+		"enabled": true
+	}
+}

@@ -1,0 +1,125 @@
+// Persistence models (the "Models" layer).
+// SQLite is the default for zero-setup local runs. To use PostgreSQL, change
+// `provider` to "postgresql" and point DATABASE_URL at your database - no code changes needed.
+//
+// Status / type columns are stored as strings (validated in the domain layer, see
+// src/models/kyc.model.ts) so the schema stays portable across SQLite and PostgreSQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens  RefreshToken[]
+  kycApplication KycApplication?
+}
+
+/// One row per issued refresh token. Rotation links tokens of the same login session
+/// via `familyId`, which enables refresh-token reuse detection.
+model RefreshToken {
+  id           String    @id // = JWT "jti"
+  userId       String
+  familyId     String
+  tokenHash    String // sha256 of the raw token, the raw token is never stored
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  userAgent    String?
+  ip           String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+/// A user's KYC application (one per user).
+/// DRAFT -> SUBMITTED -> PROCESSING -> APPROVED | REJECTED | RESUBMISSION_REQUESTED
+/// APPROVED and REJECTED are final; RESUBMISSION_REQUESTED -> DRAFT when the user fixes the requested items.
+model KycApplication {
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  status      String  @default("DRAFT")
+  currentStep String? // client-side wizard step, used to resume an interrupted flow
+  version     Int     @default(0) // incremented on every write (optimistic concurrency / cache busting)
+
+  // Personal details (PII)
+  fullName      String?
+  dateOfBirth   String? // YYYY-MM-DD (calendar date, no timezone)
+  gender        String?
+  nationality   String? // ISO 3166-1 alpha-2
+  phoneNumber   String? // E.164
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  stateProvince String?
+  postalCode    String?
+  country       String? // ISO 3166-1 alpha-2
+
+  // Identity document
+  idType       String? // NATIONAL_ID | PASSPORT | DRIVER_LICENSE
+  idNumber     String?
+  idIssueDate  String?
+  idExpiryDate String?
+
+  // Workflow
+  submittedAt         DateTime?
+  processingStartedAt DateTime?
+  reviewedAt          DateTime?
+  rejectionReason     String? // reviewer message for REJECTED / RESUBMISSION_REQUESTED
+  resubmissionItems   String? // JSON array of items to redo, e.g. ["SELFIE"] or ["PERSONAL_DETAILS","ID_FRONT"]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents KycDocument[]
+  history   KycStatusHistory[]
+
+  @@index([status, submittedAt])
+}
+
+/// Uploaded images. Only the object-storage key is stored - files live in S3/R2 or local disk.
+model KycDocument {
+  id            String   @id @default(uuid())
+  applicationId String
+  type          String // ID_FRONT | ID_BACK | SELFIE
+  storageKey    String
+  contentType   String
+  sizeBytes     Int
+  sha256        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  application KycApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, type])
+}
+
+/// Append-only audit trail of status transitions.
+model KycStatusHistory {
+  id            String   @id @default(uuid())
+  applicationId String
+  fromStatus    String?
+  toStatus      String
+  actor         String // USER | SYSTEM
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  application KycApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+}
