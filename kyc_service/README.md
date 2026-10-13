@@ -582,6 +582,8 @@ and type columns are strings validated in the domain layer.
 - Re-encode images server-side (`sharp`) and scan uploads for malware.
 - A real KYC vendor (document authenticity, liveness, face match) behind the reviewer interface,
   with webhooks instead of polling.
+- Deeper authentication: email verification, password reset, MFA (TOTP / SMS OTP), device binding with a revocable session list, and a persistent deny list so access tokens die immediately on logout or forced sign-out (today they live until the 15-minute expiry).
+- Deeper AI face verification behind the reviewer interface: liveness / anti-spoofing, selfie-to-ID face match with a confidence score, photo quality checks, ID OCR cross-checked against the submitted details, and a manual-review queue for borderline scores.
 - Queue-based worker (BullMQ / SQS), PostgreSQL + migrations, OpenAPI spec, structured audit log of
   who viewed documents, a cleanup job for orphaned R2 objects, data-retention job, access-token deny list on logout.
 

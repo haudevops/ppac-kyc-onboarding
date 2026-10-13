@@ -566,6 +566,8 @@ cột trạng thái và loại giấy tờ là chuỗi, được kiểm tra ở 
 - Encode lại ảnh phía server (`sharp`) và quét mã độc file upload.
 - Tích hợp nhà cung cấp KYC thật (xác thực giấy tờ, liveness, so khớp khuôn mặt) sau interface
   reviewer, dùng webhook thay vì polling.
+- Làm sâu hơn phần xác thực: xác minh email, đặt lại mật khẩu, MFA (TOTP / OTP SMS), gắn thiết bị với danh sách phiên có thể thu hồi, và deny list lưu bền để access token mất hiệu lực ngay khi đăng xuất hoặc bị buộc đăng xuất (hiện chúng còn sống tới khi hết hạn 15 phút).
+- Làm sâu hơn phần AI nhận diện khuôn mặt sau interface reviewer: liveness / chống giả mạo, so khớp selfie với ảnh trên giấy tờ kèm điểm tin cậy, kiểm tra chất lượng ảnh, OCR giấy tờ đối chiếu với thông tin đã nộp, và hàng đợi duyệt thủ công cho điểm ở ngưỡng biên.
 - Worker dùng hàng đợi (BullMQ / SQS), PostgreSQL + migration, đặc tả OpenAPI, audit log có cấu trúc
   ghi lại ai đã xem giấy tờ, job dọn object R2 mồ côi, job xoá dữ liệu theo chính sách lưu trữ, danh sách chặn access token khi đăng xuất.
 

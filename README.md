@@ -81,6 +81,8 @@ Use a new account for each scenario; the outcome depends on the full name entere
 - Field-level (envelope) encryption of PII columns and server-side image re-encoding + malware scan.
 - A real KYC vendor (document authenticity, liveness, face match) with webhooks instead of polling.
 - Queue-based review, PostgreSQL, OpenAPI spec, audit log of document access, data-retention job, access-token deny list.
+- Deeper authentication: email verification and password reset, MFA (TOTP / SMS OTP), biometric unlock (Face ID / fingerprint) to reopen the app, device binding and a session list so a user can revoke other devices, and an access-token deny list on logout.
+- Deeper AI face verification: on-device liveness / anti-spoofing (blink, head-turn, anti-replay), face-match between the selfie and the ID portrait with a confidence score, automatic photo quality checks (blur, glare, face size, multiple faces) and ID OCR cross-checked against the typed details, with borderline scores routed to manual review.
 - App: certificate pinning, offline upload queue, integration tests on real devices, localization.
 
 ## Repository layout
