@@ -1,6 +1,6 @@
 # KYC Onboarding App (Flutter)
 
-[English](README.en.md) · **Tiếng Việt**
+[English](README.md) · **Tiếng Việt**
 
 App xác minh danh tính đa nền tảng (Android / iOS) cho bài tập KYC Onboarding. App làm việc với
 backend thật trong [`../kyc_service`](../kyc_service) (không mock): đăng nhập, nhập thông tin cá nhân,

@@ -1,6 +1,6 @@
 # KYC Onboarding API
 
-[English](README.en.md) · **Tiếng Việt**
+[English](README.md) · **Tiếng Việt**
 
 Backend cho bài tập KYC Onboarding: một REST API thật (không mock), được app Flutter trong
 [`../kyc_app`](../kyc_app) sử dụng. Gồm xác thực JWT, state machine KYC có lưu nháp / tiếp tục,
@@ -69,7 +69,7 @@ cấu hình sai, và secret mặc định (placeholder) bị từ chối khi `NO
 | `PUBLIC_BASE_URL` | `http://localhost:3000` | Gốc của URL file đã ký (local) - điện thoại phải truy cập được (xem bên dưới) |
 | `DATABASE_URL` | `file:./dev.db?connection_limit=1` | File SQLite (tương đối với thư mục `prisma/`) |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | placeholder | ≥ 32 ký tự, hai giá trị phải khác nhau |
-| `STORAGE_DRIVER` | `local` | `local` (ổ đĩa + URL đã ký) hoặc `s3` (Cloudflare R2 / AWS S3 / MinIO) |
+| `STORAGE_DRIVER` | `local` | `local` (ổ đĩa + URL đã ký), `s3` (Cloudflare R2 qua S3 API / AWS S3 / MinIO) hoặc `r2` (R2 binding, chỉ dùng trong Worker) |
 | `JWT_ACCESS_TTL_SECONDS` / `JWT_REFRESH_TTL_SECONDS` | `900` / `2592000` | Access token 15 phút, refresh token 30 ngày |
 | `KYC_REVIEW_WORKER_ENABLED` | `true` | Bật reviewer giả lập (tắt đi để tự quyết định bằng dev endpoint) |
 | `KYC_AUTO_REVIEW_DELAY_MS` | `10000` | Thời gian từ lúc nộp đến lúc có quyết định |
@@ -370,7 +370,81 @@ hiện nút *Retry*); mở lại app thì có banner offline; bật server lại
 
 ---
 
-## Cấu hình Cloudflare R2
+## Triển khai lên Cloudflare (Workers + D1 + R2)
+
+Cùng một codebase chạy được trên Cloudflare - Express, controller, service, repository và validation
+dùng chung với server Node. Chỉ phần hạ tầng được thay (`worker/`):
+
+| Server Node (`src/server.ts`) | Cloudflare Worker (`worker/index.ts`) |
+|---|---|
+| `app.listen()` | Express chạy trên `node:http` của Workers (`httpServerHandler`, `nodejs_compat`) |
+| File SQLite qua Prisma | **D1** qua Prisma + `@prisma/adapter-d1` (`worker/d1-prisma.ts`), schema trong `migrations/` |
+| Ổ đĩa local / S3 API | **R2 binding** (`R2StorageProvider`): ảnh lưu trong R2, link vẫn là URL `/api/v1/files/:token` ký HMAC |
+| Review worker dùng `setInterval` | **Alarm của Durable Object** (`KycReviewScheduler`) chạy cùng `KycReviewWorker.tick()` mỗi giây khi còn hồ sơ chờ; được kích hoạt khi submit, kèm Cron 1 phút làm lưới an toàn |
+| `.env` | `vars` trong `wrangler.jsonc` + `wrangler secret put` |
+
+**Gói dịch vụ:** thực tế cần gói **Workers Paid**. Gói Free chỉ cho 10 ms CPU mỗi request, không đủ cho
+bcrypt (đăng ký / đăng nhập) và Prisma query engine. Bundle khoảng 1,5 MB (gzip). Xem giới hạn và giá
+hiện tại trong tài liệu Cloudflare.
+
+### Thiết lập một lần
+
+```bash
+npm install
+npx wrangler login
+
+npx wrangler d1 create kyc-db              # chép database_id được in ra vào wrangler.jsonc
+npx wrangler r2 bucket create kyc-documents
+
+# ba secret ngẫu nhiên khác nhau (dán kết quả của `openssl rand -base64 48` khi được hỏi)
+npx wrangler secret put JWT_ACCESS_SECRET
+npx wrangler secret put JWT_REFRESH_SECRET
+npx wrangler secret put LOCAL_STORAGE_SIGNING_SECRET
+
+npm run cf:db:migrate:remote               # tạo bảng trong D1
+npm run cf:deploy                          # in ra https://kyc-service.<subdomain>.workers.dev
+```
+
+Sau đó đặt `PUBLIC_BASE_URL` trong `wrangler.jsonc` thành URL vừa in ra (link ảnh được tạo từ giá trị
+này) rồi chạy lại `npm run cf:deploy`. Kiểm tra `https://<worker-của-bạn>/health` → `"storageDriver": "r2"`.
+
+**App:** đặt `API_BASE_URL=https://kyc-service.<subdomain>.workers.dev` trong `kyc_app/.env`, tắt app
+và chạy lại. HTTPS nên không cần ngoại lệ ATS trên iOS.
+
+### Chạy Worker ở local
+
+```bash
+cp .dev.vars.example .dev.vars             # secret / giá trị override local (đã git-ignore)
+npm run cf:db:migrate:local
+npm run cf:dev                             # http://localhost:8787 - D1, R2, Durable Object local
+API_URL=http://localhost:8787 npm run smoke
+```
+
+Đã kiểm chứng: smoke test đầy đủ (auth, xoay vòng refresh token và phát hiện tái sử dụng, upload
+multipart và presigned, tải ảnh từ R2, approved / rejected / resubmission → approved) chạy qua với `wrangler dev`.
+
+### Dùng hằng ngày
+
+| Việc | Lệnh |
+|---|---|
+| Xem log trực tiếp | `npx wrangler tail` |
+| Type-check Worker | `npm run cf:typecheck` |
+| Truy vấn D1 | `npx wrangler d1 execute kyc-db --remote --command "SELECT email FROM User"` |
+| Đổi schema | sửa `prisma/schema.prisma`, rồi `npx prisma migrate diff --from-local-d1 --to-schema-datamodel prisma/schema.prisma --script --output migrations/0002_<tên>.sql`, áp dụng bằng `cf:db:migrate:local` / `cf:db:migrate:remote` |
+| Tự quyết định review | không dùng được: `NODE_ENV=production` tắt `/kyc/dev/review`; các quy tắc theo tên (reject / retake) vẫn hoạt động |
+
+### Cloudflare: đánh đổi
+
+- **D1 không có interactive transaction.** Bốn method repository dùng `$transaction(async tx => …)`
+  chạy các câu lệnh tuần tự trên D1 (`worker/d1-prisma.ts`). Độ an toàn khi chạy đồng thời không đổi vì
+  mọi lệnh ghi có điều kiện đều là `UPDATE … WHERE status = ?` / `WHERE revokedAt IS NULL`; thứ mất đi là
+  tính all-or-nothing (nếu crash giữa hai câu lệnh, có thể đổi trạng thái mà thiếu dòng lịch sử).
+  Triển khai Node + SQLite / PostgreSQL vẫn giữ transaction đầy đủ.
+- **Rate limit theo từng isolate** (lưu trong bộ nhớ). Muốn giới hạn toàn cục thì dùng rule rate-limiting của Cloudflare WAF.
+- **Ảnh đi qua Worker** (URL ký `/files/:token`) thay vì presigned URL của R2, nên không cần API
+  credential của R2; driver S3 bên dưới vẫn dùng được cho server Node.
+
+## Cấu hình Cloudflare R2 qua S3 API (server Node)
 
 1. **Tạo bucket**: Cloudflare dashboard → R2 → *Create bucket* (ví dụ `kyc-documents`).
    **Không** bật public access hay subdomain `r2.dev`.
