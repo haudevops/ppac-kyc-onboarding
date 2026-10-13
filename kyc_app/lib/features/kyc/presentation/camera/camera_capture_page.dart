@@ -6,12 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/media/frame_cropper.dart';
+
 import 'capture_overlay.dart';
 import 'capture_preview_page.dart';
 
 /// Full-screen custom camera with a guide overlay:
 ///  * documents: back camera + rounded-rectangle mask with corner brackets (ID-1 / passport ratio);
 ///  * selfie: front camera + oval face mask.
+/// Document photos taken with the camera are cropped to the guide frame (plus a small margin);
+/// selfies and gallery picks are kept whole.
 /// Returns the path of the accepted (uncompressed) photo, or null if cancelled.
 /// A gallery fallback is offered (useful on the iOS simulator, which has no camera).
 class CameraCapturePage extends StatefulWidget {
@@ -36,6 +40,10 @@ class _CameraCapturePageState extends State<CameraCapturePage> with WidgetsBindi
   bool _busy = false;
   String? _error;
   FlashMode _flashMode = FlashMode.off;
+
+  /// Screen size and guide frame from the last layout - used to crop the captured photo.
+  Size? _screenSize;
+  Rect? _frame;
 
   @override
   void initState() {
@@ -79,7 +87,8 @@ class _CameraCapturePageState extends State<CameraCapturePage> with WidgetsBindi
 
       final controller = CameraController(
         description,
-        ResolutionPreset.high,
+        // Documents get more pixels: only the framed part is kept, and it must stay readable.
+        widget.mode.isSelfie ? ResolutionPreset.high : ResolutionPreset.veryHigh,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
@@ -131,12 +140,29 @@ class _CameraCapturePageState extends State<CameraCapturePage> with WidgetsBindi
       await HapticFeedback.mediumImpact();
       final file = await controller.takePicture();
       await controller.pausePreview();
-      final accepted = await _review(file.path);
+      final path = await _cropToFrame(file.path);
+      final accepted = await _review(path);
       if (!accepted && mounted && _controller == controller) await controller.resumePreview();
     } on CameraException catch (e) {
       _setError(_describe(e));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Keeps only the part of a document photo inside the guide frame. Falls back to the full
+  /// photo if cropping fails, so the user is never blocked.
+  Future<String> _cropToFrame(String path) async {
+    final frame = _frame;
+    final screen = _screenSize;
+    if (widget.mode.isSelfie || frame == null || screen == null) return path;
+    final target = '${path.substring(0, path.lastIndexOf('.'))}_framed.jpg';
+    try {
+      await FrameCropper.cropToFrame(sourcePath: path, targetPath: target, frame: frame, screen: screen);
+      unawaited(_deleteQuietly(path));
+      return target;
+    } on Object {
+      return path;
     }
   }
 
@@ -198,6 +224,8 @@ class _CameraCapturePageState extends State<CameraCapturePage> with WidgetsBindi
           builder: (context, constraints) {
             final size = constraints.biggest;
             final hole = CaptureOverlayGeometry.holeFor(widget.mode, size);
+            _screenSize = size;
+            _frame = hole;
             return Stack(
               fit: StackFit.expand,
               children: [

@@ -184,6 +184,73 @@ Quy tắc quyết định (`KYC_AUTO_REVIEW_MODE=rule`, mặc định) - thiết
 
 ---
 
+## Luồng dữ liệu
+
+Mỗi môi trường có **một database riêng và không có đồng bộ giữa các database**. Mọi thao tác ghi đi
+App → API → một nơi lưu duy nhất; không có sao chép hay replicate giữa các nơi lưu.
+
+| Môi trường | Dữ liệu quan hệ (user, hồ sơ, lịch sử trạng thái) | Byte ảnh | Cơ chế kích hoạt review |
+|---|---|---|---|
+| **Cloudflare (production)** | **D1** (`kyc-db`) qua Prisma + `@prisma/adapter-d1` | Bucket **R2** `kyc-documents` (R2 binding) | Alarm Durable Object (+ Cron) |
+| **Server Node local** | File SQLite `prisma/dev.db` (hoặc PostgreSQL) | `./storage` trên ổ đĩa (hoặc bucket S3 / R2 qua S3 API) | Worker `setInterval` |
+
+SQLite local và D1 trên Cloudflare **độc lập với nhau**: tài khoản / hồ sơ tạo ở local không có trên D1
+và ngược lại. Durable Object không giữ dữ liệu nghiệp vụ, chỉ giữ alarm để chạy `KycReviewWorker.tick()`.
+
+### Dữ liệu nằm ở đâu
+
+| Dữ liệu | Nơi lưu | Ghi chú |
+|---|---|---|
+| `User` (email, hash mật khẩu) | D1 / SQLite | chỉ lưu hash bcrypt |
+| `RefreshToken` | D1 / SQLite | chỉ lưu hash SHA-256; chuỗi xoay vòng qua `replacedById` |
+| `KycApplication` (thông tin cá nhân, `status`, `currentStep`, `rejectionReason`, `resubmissionItems`) | D1 / SQLite | bản nháp **chính là** dòng này khi `status = DRAFT` |
+| `KycDocument` (loại, `key` lưu trữ, content type, dung lượng) | D1 / SQLite | chỉ metadata - **không chứa byte ảnh** |
+| `KycStatusHistory` | D1 / SQLite | mỗi lần chuyển trạng thái một dòng |
+| Byte ảnh (mặt trước / sau giấy tờ, selfie) | R2 / ổ đĩa local / S3 | object key liên kết với `KycDocument.key`; không bao giờ công khai |
+| Access token / bản nháp mã hóa | **thiết bị** (secure storage) | không lưu trên server; bản nháp trên server là nguồn chính khi resume |
+
+### Dữ liệu di chuyển thế nào
+
+```
+Lưu nháp        App ── PUT /kyc/draft ───────────────────▶ API ──▶ D1: UPDATE KycApplication (status vẫn là DRAFT)
+                       (app cũng giữ một bản mã hóa AES-GCM trên thiết bị)
+
+Upload ảnh      App ── POST /kyc/documents/:type ────────▶ API ──┬─▶ R2:  ghi object  kyc/<userId>/<appId>/<type>-<uuid>.<ext>
+                       (multipart, hoặc presigned PUT + /confirm) └─▶ D1:  upsert KycDocument { key, size, type, sha256 }
+                                                                  (object cũ cùng loại bị xóa khỏi R2)
+
+Submit          App ── POST /kyc/submit ─────────────────▶ API ──▶ D1: gộp payload lên bản nháp, validate,
+                                                                      UPDATE ... WHERE status = 'DRAFT' → SUBMITTED
+                                                                      + INSERT KycStatusHistory
+                                                          └─ 202 ─▶ ctx.waitUntil → Durable Object: đặt alarm (+1 s)
+
+Review          Alarm Durable Object ──▶ KycReviewWorker.tick()
+                       D1: SUBMITTED → PROCESSING → (sau KYC_AUTO_REVIEW_DELAY_MS) APPROVED | REJECTED |
+                           RESUBMISSION_REQUESTED, mỗi lần là một UPDATE có điều kiện + một dòng KycStatusHistory.
+                       Worker chỉ đọc / ghi D1, không đụng tới R2.
+
+Poll trạng thái App ── GET /kyc/status ──────────────────▶ API ──▶ D1: SELECT status
+
+Xem ảnh         App ── GET /kyc  (hoặc /documents/:type) ▶ API ──▶ D1: SELECT KycDocument → ký URL ngắn hạn
+                                                                      /api/v1/files/<token>
+                App ── GET /files/<token> ───────────────▶ Worker ─▶ R2: đọc object (kiểm tra token: HMAC + hạn)
+
+Resubmission    App sửa mục bị yêu cầu (PUT draft / upload ảnh) ─▶ lần sửa đầu: D1 RESUBMISSION_REQUESTED → DRAFT,
+                xóa các dòng KycDocument bị yêu cầu làm lại và object R2 tương ứng; rồi submit lại (cùng đường đi với Submit)
+```
+
+Thứ tự khi upload: object được ghi vào R2 **trước**, sau đó mới lưu dòng `KycDocument` vào D1. Nếu hồ sơ không
+còn sửa được thì object mới bị xóa lại, còn object cũ bị thay thế sẽ được xóa sau khi dòng được cập nhật. Chỉ khi
+tiến trình chết giữa hai lần ghi mới có thể còn một object riêng tư không được tham chiếu trong R2; thứ tự ngược
+lại sẽ để lại dòng trỏ tới file không tồn tại. Job dọn các object mồ côi như vậy nằm trong mục "Nếu có thêm thời gian".
+
+### Thay đổi schema (luồng migration)
+
+`prisma/schema.prisma` là nguồn chuẩn → `prisma migrate diff … --script` sinh file SQL trong `migrations/`
+→ `wrangler d1 migrations apply kyc-db --local` (D1 local) và `--remote` (D1 production). Server Node local
+dùng `npm run setup` (`prisma db push`) trên file SQLite riêng. Dữ liệu hiện có không bao giờ được sao
+chép giữa hai bên.
+
 ## API
 
 Base URL: `/api/v1`. Mọi endpoint KYC đều cần `Authorization: Bearer <accessToken>`.
@@ -500,7 +567,7 @@ cột trạng thái và loại giấy tờ là chuỗi, được kiểm tra ở 
 - Tích hợp nhà cung cấp KYC thật (xác thực giấy tờ, liveness, so khớp khuôn mặt) sau interface
   reviewer, dùng webhook thay vì polling.
 - Worker dùng hàng đợi (BullMQ / SQS), PostgreSQL + migration, đặc tả OpenAPI, audit log có cấu trúc
-  ghi lại ai đã xem giấy tờ, job xoá dữ liệu theo chính sách lưu trữ, danh sách chặn access token khi đăng xuất.
+  ghi lại ai đã xem giấy tờ, job dọn object R2 mồ côi, job xoá dữ liệu theo chính sách lưu trữ, danh sách chặn access token khi đăng xuất.
 
 ---
 

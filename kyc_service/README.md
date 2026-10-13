@@ -192,6 +192,75 @@ The brief asks to "make an assumption and document it" where requirements are un
 
 ---
 
+## Data flow
+
+There is **one database per environment and no database-to-database sync**. Every write goes
+App → API → a single store; nothing is replicated or copied between stores.
+
+| Environment | Relational data (users, applications, status history) | Photo bytes | Review trigger |
+|---|---|---|---|
+| **Cloudflare (production)** | **D1** (`kyc-db`) via Prisma + `@prisma/adapter-d1` | **R2** bucket `kyc-documents` (R2 binding) | Durable Object alarm (+ Cron) |
+| **Local Node server** | SQLite file `prisma/dev.db` (or PostgreSQL) | `./storage` on disk (or an S3 / R2 bucket via the S3 API) | `setInterval` worker |
+
+The local SQLite file and Cloudflare D1 are **independent**: accounts and applications created
+locally are not in D1 and vice versa. The Durable Object holds no business data, only the alarm
+that runs `KycReviewWorker.tick()`.
+
+### What is stored where
+
+| Data | Store | Notes |
+|---|---|---|
+| `User` (email, password hash) | D1 / SQLite | bcrypt hash only |
+| `RefreshToken` | D1 / SQLite | SHA-256 hash only; rotation chain via `replacedById` |
+| `KycApplication` (personal details, `status`, `currentStep`, `rejectionReason`, `resubmissionItems`) | D1 / SQLite | the draft **is** this row while `status = DRAFT` |
+| `KycDocument` (type, storage `key`, content type, size) | D1 / SQLite | metadata only (+ sha256) - **no image bytes** |
+| `KycStatusHistory` | D1 / SQLite | one row per status transition |
+| Image bytes (ID front / back, selfie) | R2 / local disk / S3 | object key links it to `KycDocument.key`; never public |
+| Access token / encrypted draft copy | **the device** (secure storage) | not stored on the server; the server draft is the source of truth for resume |
+
+### How data moves
+
+```
+Save draft      App ── PUT /kyc/draft ───────────────────▶ API ──▶ D1: UPDATE KycApplication (status stays DRAFT)
+                       (the app also keeps an AES-GCM encrypted copy on the device)
+
+Upload photo    App ── POST /kyc/documents/:type ────────▶ API ──┬─▶ R2:  put object  kyc/<userId>/<appId>/<type>-<uuid>.<ext>
+                       (multipart, or presigned PUT + /confirm)  └─▶ D1:  upsert KycDocument { key, size, type, sha256 }
+                                                                  (an old object of the same type is deleted from R2)
+
+Submit          App ── POST /kyc/submit ─────────────────▶ API ──▶ D1: merge payload over draft, validate,
+                                                                      UPDATE ... WHERE status = 'DRAFT' → SUBMITTED
+                                                                      + INSERT KycStatusHistory
+                                                          └─ 202 ─▶ ctx.waitUntil → Durable Object: set alarm (+1 s)
+
+Review          Durable Object alarm ──▶ KycReviewWorker.tick()
+                       D1: SUBMITTED → PROCESSING → (after KYC_AUTO_REVIEW_DELAY_MS) APPROVED | REJECTED |
+                           RESUBMISSION_REQUESTED, each a conditional UPDATE + a KycStatusHistory row.
+                       The worker reads D1 only; it never touches R2.
+
+Poll status     App ── GET /kyc/status ──────────────────▶ API ──▶ D1: SELECT status
+
+View photo      App ── GET /kyc  (or /documents/:type) ──▶ API ──▶ D1: SELECT KycDocument → signs a short-lived
+                                                                      /api/v1/files/<token> URL
+                App ── GET /files/<token> ───────────────▶ Worker ─▶ R2: get object (token checked: HMAC + expiry)
+
+Resubmission    App edits the flagged item (PUT draft / upload photo) ─▶ first edit: D1 RESUBMISSION_REQUESTED → DRAFT,
+                the flagged KycDocument rows and their R2 objects are deleted; then submit again (the same path as Submit)
+```
+
+Ordering for uploads: the object is written to R2 **first**, then the `KycDocument` row is saved in D1.
+If the application is no longer editable the new object is deleted again, and the replaced object is deleted
+after the row is updated. Only if the process dies between the two writes can an unreferenced (private) object
+remain in R2; the reverse order would leave a row pointing at nothing. A cleanup job for such orphans is listed
+under "With more time".
+
+### Schema changes (migration flow)
+
+`prisma/schema.prisma` is the source of truth → `prisma migrate diff … --script` generates a SQL file in
+`migrations/` → `wrangler d1 migrations apply kyc-db --local` (local D1) and `--remote` (production D1).
+The local Node server uses `npm run setup` (`prisma db push`) on its own SQLite file. Existing data
+is never copied between the two.
+
 ## API
 
 Base URL: `/api/v1`. All KYC endpoints require `Authorization: Bearer <accessToken>`.
@@ -514,7 +583,7 @@ and type columns are strings validated in the domain layer.
 - A real KYC vendor (document authenticity, liveness, face match) behind the reviewer interface,
   with webhooks instead of polling.
 - Queue-based worker (BullMQ / SQS), PostgreSQL + migrations, OpenAPI spec, structured audit log of
-  who viewed documents, data-retention job, access-token deny list on logout.
+  who viewed documents, a cleanup job for orphaned R2 objects, data-retention job, access-token deny list on logout.
 
 ---
 
